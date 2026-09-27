@@ -393,6 +393,7 @@ Jev is hosted and not bit-reproducible. Repeated calls on this message returned 
 | `requirements.txt` | Python dependencies |
 | `.env` | Your OpenRouter API key. Git ignores this file. |
 | `.env.example` | Template for `.env` |
+| `.gitignore` | Keeps `.env`, the virtual environment, and caches out of git |
 
 ## Configuration
 
