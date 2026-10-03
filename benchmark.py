@@ -4,7 +4,7 @@ Each scenario in scenarios.jsonl holds a customer message and the booking that
 steering should produce (department and priority). A scenario is correct when
 the agent's final booking matches both.
 
-Usage: uv run python benchmark.py [deterministic|llm|jev|laya|decider ...] [--limit N] [--workers N]
+Usage: uv run python benchmark.py [deterministic|llm|jev|laya|decider|strands ...] [--limit N] [--workers N]
 """
 
 import argparse
@@ -45,7 +45,11 @@ def main() -> None:
     scenarios = [json.loads(line) for line in SCENARIOS.read_text().splitlines() if line.strip()]
     scenarios = scenarios[: args.limit]
 
-    for method, load in (("laya", steering_demo.laya_agent), ("decider", steering_demo.decider_agent)):
+    for method, load in (
+        ("laya", steering_demo.laya_agent),
+        ("decider", steering_demo.decider_agent),
+        ("strands", steering_demo.strands_agent),
+    ):
         if method in args.methods:
             load()  # load the local model before timing starts
 

@@ -1,10 +1,10 @@
-"""Ask the same three questions about one customer message, on all three models.
+"""Ask the same three questions about one customer message, on all four models.
 
 The message is the one the blog uses throughout. It contains no safety keyword, so a
 keyword rule misses it. This script is the recorded source for the per-answer numbers
 the blog quotes.
 
-    uv run python running_example.py [jev|laya|decider|all]
+    uv run python running_example.py [jev|laya|decider|strands|all]
 """
 
 import os
@@ -20,6 +20,7 @@ BASE_URL = "https://openrouter.ai/api"
 LAYA_MODEL = "convaiinnovations/laya"
 DECIDER_MODEL = "Mapika/decider-4b"
 DECIDER_REVISION = "v2"
+STRANDS_MODEL = "StrandsAgents/strands-decider-2B-hobson-v19"
 
 STATE = "When I stop at lights the car pulls hard to the left and the pedal sinks almost to the floor."
 
@@ -106,10 +107,33 @@ def run_decider():
     print(f"[decider] urgency probabilities {urgency['probabilities']}")
 
 
+def run_strands():
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    sys.modules.setdefault("fla", None)  # its Triton kernel needs a GPU, so use the torch path
+    from strands_decider.infer import load_engine
+
+    # Its ChoiceQuestion requires string descriptions, so bare labels are empty strings
+    # rather than None. The rendered option lines are the same as the other models'.
+    schema = {**SCHEMA, "department": {**SCHEMA["department"], "criteria": {d: "" for d in DEPARTMENTS}}}
+    answers = load_engine(STRANDS_MODEL, device="cpu").ask(STATE, schema).answers
+    urgency = answers["urgency"]
+    report(
+        "strands",
+        answers["department"].choice,
+        answers["department"].confidence,
+        f"{urgency.score} {urgency.legend[str(round(urgency.score))]!r}",
+        answers["safety_risk"].noul,
+        f" urgency_confidence={urgency.confidence}",
+    )
+    print(f"[strands] probabilities {answers['department'].probabilities}")
+    print(f"[strands] urgency probabilities {urgency.probabilities}")
+
+
 def main() -> None:
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
-    for name in ["jev", "laya", "decider"] if which == "all" else [which]:
-        {"jev": run_jev, "laya": run_laya, "decider": run_decider}[name]()
+    runners = {"jev": run_jev, "laya": run_laya, "decider": run_decider, "strands": run_strands}
+    for name in list(runners) if which == "all" else [which]:
+        runners[name]()
 
 
 if __name__ == "__main__":

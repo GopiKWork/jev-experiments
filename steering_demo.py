@@ -10,8 +10,9 @@ department or priority is wrong.
     jev            Jev classifies the message. Python decides.
     laya           Laya, an open-weight model run locally, classifies. Python decides.
     decider        Decider, a larger open-weight model run locally, classifies. Python decides.
+    strands        Strands Decider, an open-weight model run locally, classifies. Python decides.
 
-Usage: uv run python steering_demo.py [deterministic|llm|jev|laya|decider]
+Usage: uv run python steering_demo.py [deterministic|llm|jev|laya|decider|strands]
 """
 
 import os
@@ -34,6 +35,7 @@ AGENT_MODEL = "us.openai.gpt-5.6-terra"  # OpenAI model on Amazon Bedrock
 LAYA_MODEL = "convaiinnovations/laya"  # open weights on Hugging Face, run locally
 DECIDER_MODEL = "Mapika/decider-4b"  # open weights on Hugging Face, run locally
 DECIDER_REVISION = "v2"  # better calibrated on hard items than v2.1 on the main branch
+STRANDS_MODEL = "StrandsAgents/strands-decider-2B-hobson-v19"  # open weights, run locally
 
 # No word like "brake" or "smoke" appears, so keyword rules miss it.
 CUSTOMER = "When I stop at lights the car pulls hard to the left and the pedal sinks almost to the floor."
@@ -223,12 +225,50 @@ class DeciderSteering(SteeringHandler):
         return check(tool_use["input"], department, same_day)
 
 
+@cache
+def strands_agent():
+    """Load Strands Decider once, on first use. The first run downloads about 4.5 GB."""
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    sys.modules.setdefault("fla", None)  # its Triton kernel needs a GPU, so use the torch path
+    from strands_decider.infer import load_engine
+
+    return load_engine(STRANDS_MODEL, device="cpu")
+
+
+# Method 6: Strands Decider steering. Same questions and policy, on a 2B local model with
+# a pointer head. Its choice options carry descriptions, which this readout scores directly.
+class StrandsDeciderSteering(SteeringHandler):
+    THRESHOLD = 0.6
+    lock = threading.Lock()  # one local model, so run one prediction at a time
+
+    async def steer_before_tool(self, *, agent, tool_use, **kwargs):
+        with self.lock:
+            answers = strands_agent().ask(
+                customer_text(agent),
+                {
+                    "safety_risk": {"type": "noul", "instructions": "Is it unsafe to keep driving this vehicle?"},
+                    "department": {
+                        "type": "choice",
+                        "instructions": "Which dealership department should handle this?",
+                        "criteria": DEPARTMENTS,
+                    },
+                },
+            ).answers
+        safety_risk = answers["safety_risk"].noul
+        department = answers["department"].choice
+        log(f"[strands] safety_risk={safety_risk:.2f} department={department}")
+
+        same_day = department == "Service" and safety_risk >= self.THRESHOLD
+        return check(tool_use["input"], department, same_day)
+
+
 HANDLERS = {
     "deterministic": KeywordSteering,
     "llm": LLMSteering,
     "jev": JevSteering,
     "laya": LayaSteering,
     "decider": DeciderSteering,
+    "strands": StrandsDeciderSteering,
 }
 
 
